@@ -75,6 +75,7 @@ function returnResult () {
 	if [[ "$CHECKSTATUS" == "Critical" ]] && [ $EXITCODE -le 2 ]; then EXITCODE=2; fi
 	if [[ "$CHECKSTATUS" == "Warning" ]] && [ $EXITCODE -eq 0 ]; then EXITCODE=1; fi
 	if [[ "$CHECKSTATUS" == "Unknown" ]] && [ $EXITCODE -eq 0 ]; then EXITCODE=3; fi
+        if [[ "$CHECKSTATUS" == "OK" ]]; then EXITCODE=0; fi
 	}
 
 # Itterate through each namespace
@@ -95,16 +96,28 @@ for NAMESPACE in ${NAMESPACES[*]}; do
 	DEPLOYMENTS=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[].metadata.name')
 	# Itterate through each deployment
 	for DEPLOYMENT in ${DEPLOYMENTS[*]}; do
-		TYPE=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[] | select(.metadata.name=="'$DEPLOYMENT'") | .status.conditions[].type' )
-		STATUS=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[] | select(.metadata.name=="'$DEPLOYMENT'") | .status.conditions[].status' )
+		TYPES=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[] | select(.metadata.name=="'$DEPLOYMENT'") | .status.conditions[].type' )
+		STATUSES=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[] | select(.metadata.name=="'$DEPLOYMENT'") | .status.conditions[].status' )
 		REASON=$(echo "$DEPLOYMENTS_STATUS" | jq -r '.items[] | select(.metadata.name=="'$DEPLOYMENT'") | .status.conditions[].message' )
 		# uncomment the following line to test a failure:
 		# if [[ "$DEPLOYMENT" == "kubernetes-dashboard" ]]; then TYPE="Available"; STATUS="False"; fi
-		case "${TYPE}-${STATUS}" in
-			"Available-True") returnResult OK;;
-			"Available-False") returnResult Warning;;
-			*) returnResult Unknown ;;
-		esac
+		SAVEIFS=$IFS   # Save current IFS
+		IFS=$'\n'      # Change IFS to new line
+		TYPES=($TYPES) # split to array $names
+                STATUSES=($STATUSES)
+		IFS=$SAVEIFS   # Restore IFS
+
+                for i in $(seq 1 ${#TYPES[@]}); do
+                  TYPE=${TYPES[$i-1]}
+                  STATUS=${STATUSES[$i-1]}
+                  case "${TYPE}-${STATUS}" in
+                        "Available-True") returnResult OK;;
+                        "Available-False") returnResult Warning;;
+                        "Progressing-True") returnResult OK;;
+                        "Progressing-False") returnResult Warning;;
+                        *) returnResult Unknown ;;
+                  esac
+                done;
 	done
 done
 
